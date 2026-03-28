@@ -1,6 +1,6 @@
 --- a/luci-theme-argon/htdocs/luci-static/resources/view/status/include/15_cpuinfo.js
 +++ b/luci-theme-argon/htdocs/luci-static/resources/view/status/include/15_cpuinfo.js
-@@ -0,0 +1,119 @@
+@@ -0,0 +1,152 @@
 +'use strict';
 +'require baseclass';
 +'require fs';
@@ -10,6 +10,9 @@
 +	object: 'system',
 +	method: 'info'
 +});
++
++/* Max thermal zones to scan (covers CPU + WiFi radios on most devices) */
++var THERMAL_ZONES = 4;
 +
 +function progressbar(value, max) {
 +	var vn = parseInt(value) || 0,
@@ -22,6 +25,31 @@
 +	}, E('div', { 'style': 'width:%.2f%%'.format(pc) }));
 +}
 +
++function parseThermalZone(tempResult, typeResult) {
++	if (!tempResult || tempResult.code !== 0 || !tempResult.stdout)
++		return null;
++
++	var temp = parseInt(tempResult.stdout.trim());
++	if (isNaN(temp) || temp <= 0)
++		return null;
++
++	var type = 'Unknown';
++	if (typeResult && typeResult.code === 0 && typeResult.stdout)
++		type = typeResult.stdout.trim();
++
++	return { temp: (temp / 1000).toFixed(1), type: type };
++}
++
++function formatZoneLabel(type) {
++	if (/cpu|soc|x86|pkg|processor|coretemp/i.test(type))
++		return _('CPU Temperature');
++
++	if (/mt76|ath[0-9]|iwl|wifi|wlan|phy/i.test(type))
++		return _('WiFi Temperature') + ' (' + type + ')';
++
++	return _('Temperature') + ' (' + type + ')';
++}
++
 +return baseclass.extend({
 +	title: _('CPU'),
 +
@@ -29,28 +57,33 @@
 +	prevTotal: 0,
 +
 +	load: function() {
-+		return Promise.all([
-+			L.resolveDefault(fs.exec('/bin/cat', ['/sys/class/thermal/thermal_zone0/temp']), null),
-+			L.resolveDefault(fs.exec('/usr/bin/head', ['-1', '/proc/stat']), null),
-+			L.resolveDefault(callSystemInfo(), {})
-+		]);
++		var promises = [];
++
++		for (var i = 0; i < THERMAL_ZONES; i++) {
++			promises.push(L.resolveDefault(fs.exec('/bin/cat', ['/sys/class/thermal/thermal_zone' + i + '/temp']), null));
++			promises.push(L.resolveDefault(fs.exec('/bin/cat', ['/sys/class/thermal/thermal_zone' + i + '/type']), null));
++		}
++
++		promises.push(L.resolveDefault(fs.exec('/usr/bin/head', ['-1', '/proc/stat']), null));
++		promises.push(L.resolveDefault(callSystemInfo(), {}));
++
++		return Promise.all(promises);
 +	},
 +
 +	render: function(data) {
-+		var tempResult = data[0],
-+		    statResult = data[1],
-+		    systemInfo = data[2];
-+
 +		var fields = [];
 +
-+		// Parse CPU temperature
-+		var cpuTemp = null;
-+		if (tempResult && tempResult.code === 0 && tempResult.stdout) {
-+			var temp = parseInt(tempResult.stdout.trim());
-+			if (!isNaN(temp) && temp > 0) {
-+				cpuTemp = (temp / 1000).toFixed(1);
-+			}
++		var temps = [];
++		for (var i = 0; i < THERMAL_ZONES; i++) {
++			var zone = parseThermalZone(data[i * 2], data[i * 2 + 1]);
++			if (zone)
++				temps.push(zone);
 +		}
++
++		var statIdx = THERMAL_ZONES * 2;
++		var sysIdx = THERMAL_ZONES * 2 + 1;
++		var statResult = data[statIdx];
++		var systemInfo = data[sysIdx];
 +
 +		// Parse CPU usage
 +		var cpuUsage = null;
@@ -96,10 +129,10 @@
 +			fields.push(progressbar(cpuUsage, 100));
 +		}
 +
-+		// CPU temperature
-+		if (cpuTemp !== null) {
-+			fields.push(_('Temperature'));
-+			fields.push(cpuTemp + ' °C');
++		// All temperatures (CPU + WiFi + others)
++		for (var i = 0; i < temps.length; i++) {
++			fields.push(formatZoneLabel(temps[i].type));
++			fields.push(temps[i].temp + ' °C');
 +		}
 +
 +		if (fields.length === 0) {
@@ -122,7 +155,7 @@
 +});
 --- a/luci-theme-argon/root/usr/share/rpcd/acl.d/luci-theme-argon.json
 +++ b/luci-theme-argon/root/usr/share/rpcd/acl.d/luci-theme-argon.json
-@@ -2,7 +2,11 @@
+@@ -2,7 +2,12 @@
      "luci-theme-argon": {
          "description": "Grant UCI access for luci-theme-argon",
          "read": {
@@ -130,6 +163,7 @@
 +            "uci": [ "argon" ],
 +            "file": {
 +                "/bin/cat /sys/class/thermal/thermal_zone*/temp": [ "exec" ],
++                "/bin/cat /sys/class/thermal/thermal_zone*/type": [ "exec" ],
 +                "/usr/bin/head -1 /proc/stat": [ "exec" ]
 +            }
          }
