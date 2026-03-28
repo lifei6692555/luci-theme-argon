@@ -1,5 +1,5 @@
---- a/htdocs/luci-static/resources/view/status/include/15_cpuinfo.js
-+++ b/htdocs/luci-static/resources/view/status/include/15_cpuinfo.js
+--- a/luci-theme-argon/htdocs/luci-static/resources/view/status/include/15_cpuinfo.js
++++ b/luci-theme-argon/htdocs/luci-static/resources/view/status/include/15_cpuinfo.js
 @@ -0,0 +1,119 @@
 +'use strict';
 +'require baseclass';
@@ -120,8 +120,8 @@
 +		return table;
 +	}
 +});
---- a/root/usr/share/rpcd/acl.d/luci-theme-argon.json
-+++ b/root/usr/share/rpcd/acl.d/luci-theme-argon.json
+--- a/luci-theme-argon/root/usr/share/rpcd/acl.d/luci-theme-argon.json
++++ b/luci-theme-argon/root/usr/share/rpcd/acl.d/luci-theme-argon.json
 @@ -2,7 +2,11 @@
      "luci-theme-argon": {
          "description": "Grant UCI access for luci-theme-argon",
