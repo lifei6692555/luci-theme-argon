@@ -2,7 +2,11 @@
     "luci-theme-argon": {
         "description": "Grant UCI access for luci-theme-argon",
         "read": {
-            "uci": [ "argon" ]
+            "uci": [ "argon" ],
+            "file": {
+                "/bin/cat /sys/class/thermal/thermal_zone*/temp": [ "exec" ],
+                "/usr/bin/head -1 /proc/stat": [ "exec" ]
+            }
         }
     }
 }
