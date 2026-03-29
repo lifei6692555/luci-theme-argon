@@ -1,6 +1,6 @@
 --- a/luci-theme-argon/htdocs/luci-static/resources/view/status/include/15_cpuinfo.js
 +++ b/luci-theme-argon/htdocs/luci-static/resources/view/status/include/15_cpuinfo.js
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,189 @@
 +'use strict';
 +'require baseclass';
 +'require fs';
@@ -11,9 +11,10 @@
 +	method: 'info'
 +});
 +
++var numHwmon = 10;
 +var numZones = 10;
 +
-+var wifiTypePattern = /mt76|ath10k|ath11k|iwlwifi/i;
++var wifiDevicePattern = /mt76|mt79|ath10k|ath11k|iwlwifi/i;
 +
 +function progressbar(value, max) {
 +	var vn = parseInt(value) || 0,
@@ -35,9 +36,16 @@
 +	load: function() {
 +		var promises = [];
 +
++		// hwmon: name + temp1_input
++		for (var i = 0; i < numHwmon; i++) {
++			promises.push(L.resolveDefault(fs.exec('/bin/cat', ['/sys/class/hwmon/hwmon' + i + '/name']), null));
++			promises.push(L.resolveDefault(fs.exec('/bin/cat', ['/sys/class/hwmon/hwmon' + i + '/temp1_input']), null));
++		}
++
++		// thermal_zone: type + temp
 +		for (var i = 0; i < numZones; i++) {
-+			promises.push(L.resolveDefault(fs.exec('/bin/cat', ['/sys/class/thermal/thermal_zone' + i + '/temp']), null));
 +			promises.push(L.resolveDefault(fs.exec('/bin/cat', ['/sys/class/thermal/thermal_zone' + i + '/type']), null));
++			promises.push(L.resolveDefault(fs.exec('/bin/cat', ['/sys/class/thermal/thermal_zone' + i + '/temp']), null));
 +		}
 +
 +		promises.push(L.resolveDefault(fs.exec('/usr/bin/head', ['-1', '/proc/stat']), null));
@@ -47,18 +55,39 @@
 +	},
 +
 +	render: function(data) {
-+		var statResult = data[numZones * 2],
-+		    systemInfo = data[numZones * 2 + 1];
++		var hwmonEnd = numHwmon * 2;
++		var zoneEnd = hwmonEnd + numZones * 2;
++		var statResult = data[zoneEnd];
++		var systemInfo = data[zoneEnd + 1];
 +
-+		var fields = [];
-+
-+		// Parse thermal zones
 +		var cpuTemp = null;
-+		var wifiTemp = null;
++		var wifiTemps = [];
 +
++		// Parse hwmon sensors
++		for (var i = 0; i < numHwmon; i++) {
++			var nameResult = data[i * 2];
++			var tempResult = data[i * 2 + 1];
++
++			if (nameResult && nameResult.code === 0 && nameResult.stdout &&
++			    tempResult && tempResult.code === 0 && tempResult.stdout) {
++				var name = nameResult.stdout.trim();
++				var temp = parseInt(tempResult.stdout.trim());
++				if (!isNaN(temp) && temp > 0) {
++					var tempC = (temp / 1000).toFixed(1);
++
++					if (wifiDevicePattern.test(name)) {
++						wifiTemps.push({ name: name, temp: tempC });
++					} else if (cpuTemp === null) {
++						cpuTemp = tempC;
++					}
++				}
++			}
++		}
++
++		// Also parse thermal zones to fill in missing data
 +		for (var i = 0; i < numZones; i++) {
-+			var tempResult = data[i * 2];
-+			var typeResult = data[i * 2 + 1];
++			var typeResult = data[hwmonEnd + i * 2];
++			var tempResult = data[hwmonEnd + i * 2 + 1];
 +
 +			if (tempResult && tempResult.code === 0 && tempResult.stdout) {
 +				var temp = parseInt(tempResult.stdout.trim());
@@ -70,14 +99,16 @@
 +						zoneType = typeResult.stdout.trim();
 +					}
 +
-+					if (wifiTypePattern.test(zoneType)) {
-+						if (wifiTemp === null) {
-+							wifiTemp = tempC;
++					if (wifiDevicePattern.test(zoneType)) {
++						var found = false;
++						for (var j = 0; j < wifiTemps.length; j++) {
++							if (wifiTemps[j].name === zoneType) { found = true; break; }
 +						}
-+					} else {
-+						if (cpuTemp === null) {
-+							cpuTemp = tempC;
++						if (!found) {
++							wifiTemps.push({ name: zoneType, temp: tempC });
 +						}
++					} else if (cpuTemp === null) {
++						cpuTemp = tempC;
 +					}
 +				}
 +			}
@@ -121,6 +152,8 @@
 +			cpuUsage = Math.min(Math.round(load1 * 100), 100);
 +		}
 +
++		var fields = [];
++
 +		// CPU usage
 +		if (cpuUsage !== null) {
 +			fields.push(_('CPU usage (%)'));
@@ -129,14 +162,14 @@
 +
 +		// CPU temperature
 +		if (cpuTemp !== null) {
-+			fields.push(_('CPU Temperature'));
++			fields.push(_('CPU 温度'));
 +			fields.push(cpuTemp + ' °C');
 +		}
 +
-+		// WiFi temperature
-+		if (wifiTemp !== null) {
-+			fields.push(_('WiFi Temperature'));
-+			fields.push(wifiTemp + ' °C');
++		// WiFi temperatures (show all)
++		for (var i = 0; i < wifiTemps.length; i++) {
++			fields.push(_('WiFi 温度') + ' (' + wifiTemps[i].name + ')');
++			fields.push(wifiTemps[i].temp + ' °C');
 +		}
 +
 +		if (fields.length === 0) {
@@ -159,13 +192,15 @@
 +});
 --- a/luci-theme-argon/root/usr/share/rpcd/acl.d/luci-theme-argon.json
 +++ b/luci-theme-argon/root/usr/share/rpcd/acl.d/luci-theme-argon.json
-@@ -2,7 +2,12 @@
+@@ -2,7 +2,14 @@
      "luci-theme-argon": {
          "description": "Grant UCI access for luci-theme-argon",
          "read": {
 -            "uci": [ "argon" ]
 +            "uci": [ "argon" ],
 +            "file": {
++                "/bin/cat /sys/class/hwmon/hwmon*/name": [ "exec" ],
++                "/bin/cat /sys/class/hwmon/hwmon*/temp1_input": [ "exec" ],
 +                "/bin/cat /sys/class/thermal/thermal_zone*/temp": [ "exec" ],
 +                "/bin/cat /sys/class/thermal/thermal_zone*/type": [ "exec" ],
 +                "/usr/bin/head -1 /proc/stat": [ "exec" ]
