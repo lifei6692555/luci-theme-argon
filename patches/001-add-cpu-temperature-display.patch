@@ -1,6 +1,6 @@
 --- a/luci-theme-argon/htdocs/luci-static/resources/view/status/include/15_cpuinfo.js
 +++ b/luci-theme-argon/htdocs/luci-static/resources/view/status/include/15_cpuinfo.js
-@@ -0,0 +1,189 @@
+@@ -0,0 +1,195 @@
 +'use strict';
 +'require baseclass';
 +'require fs';
@@ -28,7 +28,7 @@
 +}
 +
 +return baseclass.extend({
-+	title: _('CPU'),
++	title: 'CPU',
 +
 +	prevIdle: 0,
 +	prevTotal: 0,
@@ -168,7 +168,13 @@
 +
 +		// WiFi temperatures (show all)
 +		for (var i = 0; i < wifiTemps.length; i++) {
-+			fields.push(_('WiFi 温度') + ' (' + wifiTemps[i].name + ')');
++			var bandLabel = wifiTemps[i].name;
++			if (/phy0/i.test(bandLabel)) {
++				bandLabel = '2.4G';
++			} else if (/phy1/i.test(bandLabel)) {
++				bandLabel = '5G';
++			}
++			fields.push(_('WiFi 温度') + ' ' + bandLabel);
 +			fields.push(wifiTemps[i].temp + ' °C');
 +		}
 +
